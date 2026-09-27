@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🎲 Juego de 11</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui;background:linear-gradient(135deg,#f7d9ff,#d9f2ff);min-height:100vh;color:#222}
+main{max-width:650px;margin:auto;padding:18px}.card{background:#ffffffdd;border-radius:20px;padding:20px;margin:12px 0;box-shadow:0 5px 25px #0001}
+h1{text-align:center}.big{text-align:center;font-size:3rem;font-weight:800}.muted{color:#666}.players div{display:flex;justify-content:space-between;padding:9px 12px;margin:5px 0;border-radius:12px;background:#f1f1f1}.active{outline:3px solid #777}.challenge{font-size:20px;line-height:1.45;min-height:70px}
+button,input{font:inherit;padding:13px;border-radius:12px;border:1px solid #bbb}button{cursor:pointer;border:0;background:#222;color:white;margin:4px}input{width:100%;margin:5px 0}.row{display:flex;gap:8px}.row>*{flex:1}.hidden{display:none}.code{font-size:2rem;text-align:center;font-weight:800;letter-spacing:5px}
+</style>
+</head>
+<body><main>
+<h1>🎲 Juego de 11</h1>
+
+<div id="setup" class="card">
+<h2>Crear o unirse a una sala</h2>
+<p class="muted">Una persona crea la sala y comparte el código. Las otras 10 se unen desde sus celulares.</p>
+<button onclick="createRoom()">Crear sala</button>
+<hr>
+<input id="joinCode" placeholder="Código de sala">
+<button onclick="joinRoom()">Unirme a sala</button>
+<p id="status" class="muted"></p>
+</div>
+
+<div id="game" class="hidden">
+<div class="card"><div class="muted">Turno</div><div id="turn" class="big">1</div><h2 id="player" style="text-align:center">Jugador 1</h2></div>
+<div id="hostCode" class="card hidden"><div class="muted">Código para compartir</div><div id="code" class="code"></div></div>
+<div class="card"><h2>Jugadores</h2><div id="players" class="players"></div></div>
+<div class="card"><div class="muted">RETO</div><div id="challenge" class="challenge">Esperando el primer reto...</div></div>
+<div id="hostControls">
+<button onclick="draw()">🎲 Sacar reto</button>
+<button onclick="done()">✅ Cumplido</button>
+<button onclick="skip()">⏭️ Pasar</button>
+</div>
+<p id="connection" class="muted"></p>
+</div>
+
+<script>
+const challenges=[
+"Haz que todos se rían en 10 segundos.",
+"Cuenta una anécdota divertida sin decir nombres.",
+"Imita a alguien famoso durante 15 segundos.",
+"Di tres cosas que llevarías a una isla desierta.",
+"Haz una pose durante 10 segundos.",
+"Inventa un superhéroe y su poder.",
+"Di una palabra y consigue que alguien rime con ella.",
+"Haz una mini actuación de una escena imaginaria.",
+"Describe una película sin decir su título para que alguien la adivine.",
+"Di tres cosas que te gustan de tus amistades.",
+"Elige a alguien y creen un saludo secreto.",
+"Cuenta un chiste corto.",
+"Haz una estatua y deja que el grupo elija la temática.",
+"Inventa una canción de 10 segundos sobre el grupo.",
+"Di cinco palabras que empiecen con la misma letra.",
+"Habla como robot durante 20 segundos.",
+"Haz una imitación de un animal para que alguien lo adivine.",
+"Inventa un comercial de 15 segundos para un objeto cercano."
+];
+let peer=null, host=false, conns=[], conn=null;
+let state={turn:0,scores:Array(11).fill(0),challenge:"Esperando el primer reto...",players:Array(11).fill(false)};
+
+const $=x=>document.getElementById(x);
+function showGame(){ $("setup").classList.add("hidden"); $("game").classList.remove("hidden"); render(); }
+function render(){
+$("turn").textContent=state.turn+1;$("player").textContent="Jugador "+(state.turn+1);
+$("challenge").textContent=state.challenge;
+$("players").innerHTML=state.scores.map((s,i)=>`<div class="${i===state.turn?'active':''}"><span>Jugador ${i+1}${state.players[i]?' 🟢':' ⚪'}</span><b>${s} punto${s===1?'':'s'}</b></div>`).join("");
+}
+function broadcast(){conns.forEach(c=>{try{if(c.open)c.send({type:"state",state})}catch(e){}});render();}
+function createRoom(){
+host=true; peer=new Peer();
+peer.on("open",id=>{ $("code").textContent=id.slice(0,6).toUpperCase();$("hostCode").classList.remove("hidden");$("status").textContent="Sala creada.";showGame();state.players[0]=true;render();});
+peer.on("connection",c=>{
+if(conns.length>=10){c.close();return}
+conns.push(c);let idx=conns.length;c.on("open",()=>{c.send({type:"assign",index:idx,state});state.players[idx]=true;broadcast();});
+c.on("close",()=>{state.players[idx]=false;render()});
+});
+}
+function joinRoom(){
+const code=$("joinCode").value.trim();if(!code)return;
+$("status").textContent="Conectando...";
+peer=new Peer();
+peer.on("open",()=>{conn=peer.connect(code);conn.on("open",()=>{conn.send({type:"hello"});$("connection").textContent="Conectado a la sala.";showGame()});
+conn.on("data",msg=>{if(msg.type==="assign"){window.myIndex=msg.index;state=msg.state;render()}if(msg.type==="state"){state=msg.state;render()}})});
+peer.on("error",e=>$("status").textContent="No se pudo conectar. Revisa el código.");
+}
+function draw(){if(!host)return;state.challenge=challenges[Math.floor(Math.random()*challenges.length)];broadcast()}
+function done(){if(!host)return;state.scores[state.turn]++;state.turn=(state.turn+1)%11;state.challenge="¡Reto cumplido! Siguiente jugador.";broadcast()}
+function skip(){if(!host)return;state.turn=(state.turn+1)%11;state.challenge="Reto pasado. Siguiente jugador.";broadcast()}
+render();
+</script></main></body></html>
